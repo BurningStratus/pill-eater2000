@@ -1,3 +1,11 @@
+
+/*
+ * All macros and preprocessor directives were  
+ * moved to headers.h
+ *
+ *
+*/
+
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
@@ -6,27 +14,13 @@
 #include "hardware/gpio.h"
 #include "hardware/uart.h"
 
-
-#define BUTTON_PIN 12
-#define LED_PIN 20
-#define OPTICAL_SENSOR_PIN 28
-#define PIEZO_SENSOR_PIN 27
-#define STEPPER_PIN1 2
-#define STEPPER_PIN2 3
-#define STEPPER_PIN3 6
-#define STEPPER_PIN4 13
-
-
-#define UART_NR uart1
-#define UART_TX_PIN 4
-#define UART_RX_PIN 5
-#define BAUD_RATE 9600
-#define STRLEN 80
-#define MAX_ATTEMPTS 5
-#define DEBOUNCE_DELAY 300 // Debounce time in milliseconds
+#include "libcommon.h"
+#include "libuart.h"
 
 // Global variables
 int pill_count = 7;
+
+static int mot_step=0;
 
 // Function Prototypes
 void initialize_hardware();
@@ -57,7 +51,10 @@ int main() {
                 printf("Button pressed. Starting calibration...\n");
                 calibrate_dispenser();
 
-                if (sendATCommand("AT\r\n", response, STRLEN, MAX_ATTEMPTS)) {
+                if ( !call_uart () );
+                    // TODO
+
+                if ( !sendATCommand("AT\r\n", response, STRLEN, MAX_ATTEMPTS)) {
                     printf("Connected to LoRa module. Starting pill dispensing...\n");
                     state = 1;
                 } else {
@@ -145,7 +142,7 @@ void rotate_stepper_one_step() {
 
 void dispense_pill() {
     printf("Dispensing pill...\n");
-    for (int step = 0; step < 50; step++) { // Rotate to next compartment
+    for (int step = 0; step < 70; step++) { // Rotate to next compartment
         rotate_stepper_one_step();
     }
 
@@ -165,6 +162,7 @@ void dispense_pill() {
     }
 }
 
+/* *moved to libuart.h*
 int readUARTResponse(char *response, int maxlen, int timeout_ms) {
     int response_len = 0;
     uint64_t start_time = time_us_64();
@@ -199,3 +197,4 @@ int sendATCommand(const char *command, char *response, int maxlen, int max_attem
     }
     return 0; // Failure
 }
+*/
