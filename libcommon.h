@@ -1,6 +1,6 @@
 
-#ifndef __PILLMACROS__
-#define __PILLMACROS__
+#ifndef __PILL_COMMON_MACROS__
+#define __PILL_COMMON_MACROS__
 
 #define BUTTON_PIN 12
 #define LED_PIN 20
@@ -12,6 +12,7 @@
 #define STEPPER_PIN4 13
 #define STRLEN 80
 #define MAX_ATTEMPTS 5
+#define TIMEOUT_MS 500 
 #define DEBOUNCE_DELAY 300 // Debounce time in milliseconds
 
 // macros

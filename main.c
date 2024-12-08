@@ -1,8 +1,7 @@
 
 /*
  * All macros and preprocessor directives were  
- * moved to headers.h
- *
+ * moved to libcommon.h
  *
 */
 
@@ -14,21 +13,23 @@
 #include "hardware/gpio.h"
 #include "hardware/uart.h"
 
+// custom libraries
 #include "libcommon.h"
 #include "libuart.h"
+#include "seterr.h"
 
 // Global variables
 int pill_count = 7;
-
-static int mot_step=0;
 
 // Function Prototypes
 void initialize_hardware();
 void calibrate_dispenser();
 void rotate_stepper_one_step();
 void dispense_pill();
-int sendATCommand(const char *command, char *response, int maxlen, int max_attempts);
-int readUARTResponse(char *response, int maxlen, int timeout_ms);
+
+// moved to libuart.h
+//int sendATCommand(const char *command, char *response, int maxlen, int max_attempts);
+//int readUARTResponse(char *response, int maxlen, int timeout_ms);
 
 // Main Program
 int main() {
@@ -51,10 +52,9 @@ int main() {
                 printf("Button pressed. Starting calibration...\n");
                 calibrate_dispenser();
 
-                if ( !call_uart () );
-                    // TODO
-
-                if ( !sendATCommand("AT\r\n", response, STRLEN, MAX_ATTEMPTS)) {
+                // subsituted. OG func is in the end of this file.
+                //if ( !sendATCommand("AT\r\n", response, STRLEN, MAX_ATTEMPTS)) {
+                if ( ! uart_cmd ("AT\r\n", response ) ) {
                     printf("Connected to LoRa module. Starting pill dispensing...\n");
                     state = 1;
                 } else {
