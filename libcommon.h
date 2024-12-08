@@ -3,7 +3,7 @@
 #define __PILL_COMMON_MACROS__
 
 #define BUTTON_PIN 12
-#define LED_PIN 20
+//#define LED_PIN 20 defined in libpwm.h
 #define OPTICAL_SENSOR_PIN 28
 #define PIEZO_SENSOR_PIN 27
 #define STEPPER_PIN1 2

@@ -1,4 +1,3 @@
-
 /*
  * All macros and preprocessor directives were  
  * moved to libcommon.h
@@ -16,6 +15,7 @@
 #include "libcommon.h"
 #include "libuart.h"
 #include "libpwm.h"
+#include "librom.h"
 #include "seterr.h"
 
 // State Variables
@@ -30,28 +30,37 @@ void dispense_pill();
 bool is_pill_detected();
 void report_status(const char *status);
 
+//=EXPERIMENTAL=TECH===========================================================
 #ifndef __PILL_PWM__
 #define __PILL_PWM__
+
+#define D1 22
+#define ON 1
+#define OFF 0
+
 void led_set_level (uint LED, uint level)
 {
-    #ifndef ON
-    #define ON 1
-    #define OFF 0
-    #endif
-
     gpio_put(LED, level);
-
-    #ifndef __LED_MSG_SHOWN__
-    #define __LED_MSG_SHOWN__
-        printf("INFO: libpwm.h is not included.\n");
-    #endif
 }
+void initpwm ()
+{
+    gpio_init(D1);
+    gpio_set_dir(D1, GPIO_OUT);
+   printf("INFO: libpwm.h is not included.\n");
+}
+#else
 #endif
 
+#ifndef __PILL_ROM__
+#define __PILL_ROM__
+void initrom ()
+{
+    printf("INFO: librom.h is not included.\n")
+}    
+#endif
+//=============================================================================
+// * UART functions were moved to libuart.h * //
 
-// UART Communication moved to libuart.h
-//int sendATCommand(const char *command, char *response, int maxlen, int max_attempts);
-//int readUARTResponse(char *response, int maxlen, int timeout_ms);
 
 // Main Function
 int main() {
@@ -75,17 +84,17 @@ int main() {
                 printf("Waiting for button press to start calibration...\n");
                 while (gpio_get(BUTTON_PIN)) {
 
-                    // gpio_put(LED_PIN, true);
+                    // gpio_put(D1, true);
                     led_set_level (D1, ON);
                     sleep_ms(200);
 
-                    // gpio_put(LED_PIN, false);
+                    // gpio_put(D1, false);
                     led_set_level (D1, OFF);
                     sleep_ms(200);
                 }
                 sleep_ms(DEBOUNCE_DELAY);
 
-                // gpio_put(LED_PIN, false);
+                // gpio_put(D1, false);
                 led_set_level (D1, OFF);
 
                 printf("Button pressed. Starting calibration...\n");
@@ -94,7 +103,7 @@ int main() {
 
                 // Keep LED on until next button press
                 printf("Calibration complete. Waiting to start dispensing...\n");
-                // gpio_put(LED_PIN, true);
+                // gpio_put(D1, true);
                 led_set_level (D1, ON);
 
                 while (gpio_get(BUTTON_PIN)) {
@@ -102,7 +111,7 @@ int main() {
                 }
 
                 sleep_ms(DEBOUNCE_DELAY);
-                // gpio_put(LED_PIN, false);
+                // gpio_put(D1, false);
                 led_set_level (D1, ON);
 
                 state = 1;
@@ -130,15 +139,16 @@ int main() {
 // Initialize hardware
 void initialize_hardware() {
     stdio_init_all();
-    
+
     initpwm();
+    initrom();
 
     gpio_init(BUTTON_PIN);
     gpio_set_dir(BUTTON_PIN, GPIO_IN);
     gpio_pull_up(BUTTON_PIN);
 
-    gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
+    //gpio_init(LED_PIN);               collision w/ header
+    //gpio_set_dir(LED_PIN, GPIO_OUT);  collision w/ header
 
     gpio_init(OPTICAL_SENSOR_PIN);
     gpio_set_dir(OPTICAL_SENSOR_PIN, GPIO_IN);
