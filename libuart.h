@@ -23,7 +23,6 @@ call_uart_inner (char *dst_ptr)
  * Send arbitrary command to Lora && write response to a destination string. 
  * Return 0 on success
  */
-    
     int         rslen = 0;
     uint64_t    sttime_us = time_us_64();
 
@@ -84,16 +83,8 @@ uart_cmd (const char *cmd, char *dst_str)
     return 1; // Failure
 }
 
-#endif
-
 //============================================================================
 // wrappers to not mess with func naming
-
-//int 
-//readUARTResponse(char *response, int maxlen)
-//{
-//    return uart_recv ( response, maxlen);
-//}
 
 int 
 sendATCommand(const char *command, char *response)
@@ -104,5 +95,5 @@ sendATCommand(const char *command, char *response)
     // 1 == errors occured(UNSPECIFIED ERROR)
 }
     
-
 //============================================================================
+#endif

@@ -40,7 +40,8 @@ void printerr(const char *offend_func)
             break;
 */
     }
-    printf(":: ERROR IN FUNC:[%s]\n", offend_func);
+    if (*offend_func)
+        printf(":: ERROR IN FUNC:[%s]\n", offend_func);
 }
 
 #endif
