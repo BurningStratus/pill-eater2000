@@ -24,7 +24,7 @@
 #define MAX_ATTEMPTS 5
 #define DEBOUNCE_DELAY 300 // Debounce time in milliseconds
 
-// State variables
+// State Variables
 int pill_count = 7;
 int motor_position = 0;
 
@@ -87,7 +87,7 @@ int main() {
                 // Dispense pills
                 if (pill_count > 0) {
                     dispense_pill();
-                    sleep_ms(30000);
+                    sleep_ms(30000); // Simulate daily interval for testing
                 } else {
                     printf("All pills dispensed. Restarting calibration...\n");
                     report_status("Dispenser empty");
@@ -198,14 +198,34 @@ void dispense_pill() {
 // Check if a pill is detected
 bool is_pill_detected() {
     uint64_t start_time = time_us_64();
-    while (time_us_64() - start_time < 1000000) { // Wait for 1 second
-        if (!gpio_get(PIEZO_SENSOR_PIN)) {
-            sleep_ms(10);
-            if (!gpio_get(PIEZO_SENSOR_PIN)) {
+    int pulse_count = 0;
+    int last_sensor_state = 1; // Assume the sensor starts in the "high" state
+
+    printf("Detecting pill...\n");
+
+    while (time_us_64() - start_time < 1000000) { // Wait for up to 1 second
+        int current_sensor_state = gpio_get(PIEZO_SENSOR_PIN);
+
+        // Only log when the state changes
+        if (current_sensor_state != last_sensor_state) {
+            printf("Piezo sensor state changed to: %d\n", current_sensor_state);
+            last_sensor_state = current_sensor_state;
+        }
+
+        // Count consecutive low signals
+        if (current_sensor_state == 0) { // Active low signal detected
+            pulse_count++;
+            sleep_ms(5); // Short debounce delay
+            if (pulse_count > 2) { // Require multiple low readings for confirmation
+                printf("Pill detected successfully after %d pulses.\n", pulse_count);
                 return true;
             }
+        } else {
+            pulse_count = 0; // Reset the pulse count if the signal goes high
         }
     }
+
+    printf("No pill detected after 1 second.\n");
     return false;
 }
 
