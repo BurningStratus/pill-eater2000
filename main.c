@@ -10,6 +10,7 @@
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
 #include "hardware/uart.h"
+#include "pico/util/queue.h"
 
 // custom libraries
 #include "libcommon.h"
@@ -21,6 +22,7 @@
 // State Variables
 int pill_count = 7;
 int motor_position = 0;
+static queue_t events;
 
 // Function Prototypes
 void initialize_hardware();
@@ -28,6 +30,7 @@ void calibrate_dispenser();
 void rotate_stepper_one_step();
 void dispense_pill();
 bool is_pill_detected();
+static void piezo_handler();
 void report_status(const char *status);
 
 //=EXPERIMENTAL=TECH===========================================================
@@ -64,6 +67,7 @@ void initrom ()
 
 // Main Function
 int main() {
+    queue_init(&events, sizeof(int), 25);
     // Initialize hardware
     initialize_hardware();
 
@@ -121,7 +125,7 @@ int main() {
                 // Dispense pills
                 if (pill_count > 0) {
                     dispense_pill();
-                    sleep_ms(30000); // Simulate daily interval for testing
+                    sleep_ms(10000); // Simulate daily interval for testing
                 } else {
                     printf("All pills dispensed. Restarting calibration...\n");
                     report_status("Dispenser empty");
@@ -157,6 +161,8 @@ void initialize_hardware() {
     gpio_init(PIEZO_SENSOR_PIN);
     gpio_set_dir(PIEZO_SENSOR_PIN, GPIO_IN);
     gpio_pull_up(PIEZO_SENSOR_PIN);
+    gpio_set_irq_enabled_with_callback(PIEZO_SENSOR_PIN, GPIO_IRQ_EDGE_RISE, true, piezo_handler);
+    gpio_set_irq_enabled(PIEZO_SENSOR_PIN, GPIO_IRQ_EDGE_RISE, false);
 
     gpio_init(STEPPER_PIN1);
     gpio_init(STEPPER_PIN2);
@@ -207,19 +213,27 @@ void calibrate_dispenser() {
 
 // Dispense a pill
 void dispense_pill() {
+    int piezo_val = 0;
+    gpio_set_irq_enabled(PIEZO_SENSOR_PIN, GPIO_IRQ_EDGE_RISE, true);
     printf("Dispensing pill...\n");
 
     // Rotate the motor to the next compartment
     for (int step = 0; step < 50; step++) {
         rotate_stepper_one_step();
     }
-
+    sleep_ms(500);
     // Check if the pill is dispensed
     printf("Waiting for pill detection...\n");
-    if (is_pill_detected()) {
-        pill_count--;
-        printf("Pill dispensed successfully. Pills remaining: %d\n", pill_count);
-        report_status("Pill dispensed");
+    if (queue_try_remove(&events, &piezo_val)) {
+        if (piezo_val == 1) {
+            pill_count--;
+            printf("Pill dispensed successfully. Pills remaining: %d\n", pill_count);
+            piezo_val = 0;
+        }
+        //queue burn
+        while (queue_try_remove(&events, &piezo_val)) {
+            piezo_val = 0;
+        }
     } else {
         printf("No pill detected! Blinking LED...\n");
         for (int i = 0; i < 5; i++) {
@@ -230,8 +244,14 @@ void dispense_pill() {
             led_set_level (D1, OFF);
             sleep_ms(200);
         }
+        gpio_set_irq_enabled(PIEZO_SENSOR_PIN, GPIO_IRQ_EDGE_RISE, false);
         report_status("Pill not detected");
     }
+}
+
+static void piezo_handler(const uint gpio, uint32_t event_mask) {
+    const int sensor_impact = 1;
+    queue_try_add(&events, &sensor_impact);
 }
 
 // Check if a pill is detected
