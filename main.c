@@ -20,9 +20,11 @@
 #include "seterr.h"
 
 // State Variables
-int pill_count = 7;
-int motor_position = 0;
-static queue_t events;
+static int      pill_count = 7;
+int     motor_position = 0;
+
+static  queue_t events;
+enum    prog_states {STANDBY, WORKING, CALIBRATE, CAL_STANDBY, CAL_DISPENSE};
 
 // Function Prototypes
 void initialize_hardware();
@@ -32,6 +34,10 @@ void dispense_pill();
 bool is_pill_detected();
 static void piezo_handler();
 void report_status(const char *status);
+void netw_connect();
+
+int st_update(uint8_t st_prog, uint8_t pill_count); //update state
+int st_get(); // get state
 
 //=EXPERIMENTAL=TECH===========================================================
 #ifndef __PILL_PWM__
@@ -49,7 +55,7 @@ void initpwm ()
 {
     gpio_init(D1);
     gpio_set_dir(D1, GPIO_OUT);
-   printf("INFO: libpwm.h is not included.\n");
+    printf("INFO: libpwm.h is not included.\n");
 }
 #else
 #endif
@@ -64,6 +70,40 @@ void initrom ()
 //=============================================================================
 // * UART functions were moved to libuart.h * //
 
+// TODO: DEBUG ONLY
+void 
+rom_dump ()
+{
+    uint16_t startmem_addr = STATE_ADDR;    
+    uint16_t endmem_addr = STATE_ADDR+64;    
+
+    printf("\n");
+    for (int i=startmem_addr; i<endmem_addr; i++)
+        printf("=");
+    printf("HEXDUMP: >\n");
+
+    for (int i=startmem_addr; i<endmem_addr; i++)     
+    {
+        if (i % 64 == 0)
+            printf("\n0x%04X\t", i);
+        printf("%02X ", readb(i) ); //print out only printable chars
+    }
+
+    // ASCII dump <0x7FC0 is the limit>
+    printf("\n ASCII DUMP: > \n");
+    for (int i=startmem_addr; i<endmem_addr; i++)     
+    {
+        if (i % 64 == 0)
+            printf("\n0x%04X\t", i);
+        char dst_str = (char)readb (i) ;
+        if ( (char)dst_str >= 33 && (char)dst_str <= 126) 
+            printf("%c", dst_str ); //print out only printable chars
+        else 
+            printf("."); // if special chars, print a dot
+    }
+}
+
+// TODO: DEBUG ONLY
 
 // Main Function
 int main() {
@@ -81,9 +121,14 @@ int main() {
     int state = 0;
     char response[STRLEN];
 
+    st_update(state, pill_count);
+    st_get();
+    rom_dump ();
+    
+
     while (true) {
         switch (state) {
-            case 0:
+            case STANDBY:
                 // Waiting for button press and blinking LED
                 printf("Waiting for button press to start calibration...\n");
                 while (gpio_get(BUTTON_PIN)) {
@@ -121,7 +166,7 @@ int main() {
                 state = 1;
                 break;
 
-            case 1:
+            case WORKING:
                 // Dispense pills
                 if (pill_count > 0) {
                     dispense_pill();
@@ -287,6 +332,32 @@ bool is_pill_detected() {
     printf("No pill detected after 1 second.\n");
     return false;
 }
+void netw_connect()
+{
+    /*
+    1. +MODE=LWOTAA
+    2. +KEY=APPKEY,”7c00d832d4ab66faee402dbb2c996da3"
+    3. +CLASS=A
+    4. +PORT=8
+    5. +JOIN
+    6. +MSG=”text message” 
+    */
+    char    resp [60]="";
+    char    cmdseq [][51] = {
+        "+MODE=LWOTAA\n",
+        "+KEY=APPKEY,\”7c00d832d4ab66faee402dbb2c996da3\"\n",
+        "+CLASS=A\n",
+        "+PORT=8\n",
+        "+JOIN\n",
+        "+MSG=\"TRANSMISSION FROM devE773\"\n"
+    };
+    for (int i=0; i<6; i++)
+    {
+        sendATCommand(cmdseq[i], resp);
+        printf("INFO NET: %s\n", resp);
+        memset(resp, 0, sizeof(resp));
+    }
+}
 
 // Report status via LoRaWAN
 void report_status(const char *status) {
@@ -296,41 +367,56 @@ void report_status(const char *status) {
     sendATCommand(command, response);
 }
 
-/*
-// UART response reader
-int readUARTResponse(char *response, int maxlen, int timeout_ms) {
-    int response_len = 0;
-    uint64_t start_time = time_us_64();
+int st_update(uint8_t st_prog, uint8_t pill_count)
+{
+    uint8_t     payload[4]="";
+    int         stat;
 
-    while (time_us_64() - start_time < timeout_ms * 1000) {
-        if (uart_is_readable(UART_NR)) {
-            response[response_len++] = uart_getc(UART_NR) & 0xFF;
-            if (response_len >= maxlen - 1) break;
-        }
-    }
+    payload[0] =  st_prog; 
+    payload[1] = ~st_prog;     // validate
+    payload[2] =  pill_count; 
+    payload[3] = ~pill_count;  // validate
 
-    if (response_len > 0) {
-        response[response_len] = '\0';
-        return 1;
-    }
+    //printf("INFO STATE >> 0x%08X at 0x%04X\n", payload, (uint16_t)STATE_ADDR);
+
+    stat=writepg((uint16_t)STATE_ADDR, payload, 2); 
+
+    printf("INFO STATE w[%d] >> %u ~%u %u ~%u at 0x%04X\n", 
+        stat,
+        payload[0], 
+        payload[1], 
+        payload[2], 
+        payload[3], 
+        (uint16_t)STATE_ADDR
+    );
+
+    if (stat < 1)
+        ERROR_CODE=WRITEPG;
+    return stat;
+}
+
+int st_get()
+{
+    uint8_t *data_ptr = seqread( (uint16_t)STATE_ADDR, 4 );
+    //printf("INFO STATE >> 0x%08X at 0x%04X\n", data_ptr, (uint16_t)STATE_ADDR);
+    
+    printf("INFO STATE r >> %u ~%u %u ~%u 0x%04X at 0x%04X\n", 
+        data_ptr[0], 
+        data_ptr[1], 
+        data_ptr[2], 
+        data_ptr[3], 
+        data_ptr,
+        (uint16_t)STATE_ADDR
+    );
+    /*
+    printf("INFO STATE r >> %u ~%u %u ~%u at 0x%04X\n", 
+        readb((uint16_t)STATE_ADDR+0), 
+        readb((uint16_t)STATE_ADDR+1), 
+        readb((uint16_t)STATE_ADDR+2), 
+        readb((uint16_t)STATE_ADDR+3), 
+        (uint16_t)STATE_ADDR);
+    */
+
+    free(data_ptr);
     return 0;
 }
-
-// Send AT command to LoRa module
-int sendATCommand(const char *command, char *response, int maxlen, int max_attempts) {
-    int attempt = 0;
-
-    while (attempt < max_attempts) {
-        uart_write_blocking(UART_NR, (const uint8_t *)command, strlen(command));
-        printf("Sent command: %s\n", command);
-        if (readUARTResponse(response, maxlen, 500)) { // 500 ms timeout
-            printf("Received response: %s\n", response);
-            return 1; // Success
-        } else {
-            printf("No response received (attempt %d)\n", attempt + 1);
-        }
-        attempt++;
-    }
-    return 0; // Failure
-}
-*/

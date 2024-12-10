@@ -14,6 +14,7 @@
 #define MAX_ATTEMPTS 5
 #define TIMEOUT_MS 500 
 #define DEBOUNCE_DELAY 300 // Debounce time in milliseconds
+#define STATE_ADDR 0x3000 
 
 // macros
 #define ARRSIZE (arr) ( sizeof(arr)/sizeof(arr[0]) ) // useful macro

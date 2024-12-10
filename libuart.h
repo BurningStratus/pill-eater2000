@@ -58,15 +58,15 @@ uart_cmd (const char *cmd, char *dst_str)
     while (attempt < MAX_ATTEMPTS) 
     {
         uart_write_blocking(UART_NR, (const uint8_t *)cmd, strlen(cmd));
-        printf("Sent command: %s\n", cmd);
+        printf("UART(SEND): %s\n", cmd);
 
         if ( !call_uart_inner (dst_str)) 
         { 
-            printf("Received response: %s\n", dst_str);
+            printf("UART: %s\n", dst_str);
             return 0; // Success
         } else {
             attempt++;
-            printf("No response received (attempt %d)\n", attempt);
+            printf("UART: NULL(%d)\n", attempt);
         }
     }
 
@@ -76,7 +76,7 @@ uart_cmd (const char *cmd, char *dst_str)
             ERROR_CODE=UART_TIMEOUT;
         } else {
             printf("More than one error:\n");
-            printerr(__FUNCTION__); 
+            printerr(__FUNCTION__, __LINE__); 
         }
     #endif
 

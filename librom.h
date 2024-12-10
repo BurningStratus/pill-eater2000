@@ -45,20 +45,26 @@ uint8_t readb (uint16_t rom_addr)
     return dst_str; 
 }
 
-int writepg (uint16_t rom_addr, const uint8_t *payload)
+int writepg (uint16_t rom_addr, const uint8_t *payload, int payload_size)
 {
-/*
- *  Write a page to EEPROM.
-*/
-    uint8_t     address[2];
     int         stat=0;
+    uint8_t     packet[2+payload_size];
 
-    address[0] = ((rom_addr & 0xFF00) >> 8);     // extract hi bits
-    address[1] = (uint8_t)(rom_addr & 0x00FF);   // extract lo bits
+    packet[0] = 0xFF; // placeholder for address (hi)
+    packet[1] = 0xFF; // placeholder for address (lo)
 
-    i2c_write_blocking ( i2c0, I2C_ADDR, address, 2, 1 ); // start write
-    stat=i2c_write_blocking ( i2c0, I2C_ADDR, payload, sizeof(payload), 0 );
+    int ii=0;
+    //strcat(packet, payload); 
+    for (int i=2; i<2+payload_size; i++)
+    {
+        packet[i]=payload[ii];
+        ii++;
+    }
 
+    packet[0] = ((rom_addr & 0xFF00) >> 8);     // extract hi bits
+    packet[1] = (uint8_t)(rom_addr & 0x00FF);   // extract lo bits
+
+    stat=i2c_write_blocking( i2c0, I2C_ADDR, packet, payload_size, 0 ); 
     sleep_ms(5);
     return stat;
 }
