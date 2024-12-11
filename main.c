@@ -20,8 +20,8 @@
 #include "seterr.h"
 
 // State Variables
-static int      pill_count = 7;
-int     motor_position = 0;
+static uint8_t      pill_count = 7;
+int                 motor_position = 0;
 
 static  queue_t events;
 enum    prog_states {STANDBY, WORKING, CALIBRATE, CAL_STANDBY, CAL_DISPENSE};
@@ -37,7 +37,7 @@ void report_status(const char *status);
 void netw_connect();
 
 int st_update(uint8_t st_prog, uint8_t pill_count); //update state
-int st_get(); // get state
+uint8_t st_get(uint8_t *state, uint8_t *pill_amt);  // get state
 
 //=EXPERIMENTAL=TECH===========================================================
 #ifndef __PILL_PWM__
@@ -122,37 +122,37 @@ int main() {
     char response[STRLEN];
 
     st_update(state, pill_count);
-    st_get();
-    rom_dump ();
-    
+    // rom_dump ();
 
     while (true) {
         switch (state) {
             case STANDBY:
+                st_update(state, pill_count);
+
                 // Waiting for button press and blinking LED
                 printf("Waiting for button press to start calibration...\n");
                 while (gpio_get(BUTTON_PIN)) {
 
-                    // gpio_put(D1, true);
                     led_set_level (D1, ON);
                     sleep_ms(200);
 
-                    // gpio_put(D1, false);
                     led_set_level (D1, OFF);
                     sleep_ms(200);
                 }
                 sleep_ms(DEBOUNCE_DELAY);
 
-                // gpio_put(D1, false);
                 led_set_level (D1, OFF);
 
                 printf("Button pressed. Starting calibration...\n");
+
+                st_update(CALIBRATE, pill_count);
                 calibrate_dispenser();
+                st_get(NULL, NULL); // print out info
+
                 motor_position = 0;
 
                 // Keep LED on until next button press
                 printf("Calibration complete. Waiting to start dispensing...\n");
-                // gpio_put(D1, true);
                 led_set_level (D1, ON);
 
                 while (gpio_get(BUTTON_PIN)) {
@@ -160,21 +160,29 @@ int main() {
                 }
 
                 sleep_ms(DEBOUNCE_DELAY);
-                // gpio_put(D1, false);
                 led_set_level (D1, ON);
 
                 state = 1;
                 break;
 
             case WORKING:
+
+                st_update(state, pill_count);
+                st_get(NULL, NULL); // print out info
+
                 // Dispense pills
                 if (pill_count > 0) {
+                    st_update(CAL_DISPENSE, pill_count);
+
                     dispense_pill();
                     sleep_ms(10000); // Simulate daily interval for testing
                 } else {
                     printf("All pills dispensed. Restarting calibration...\n");
                     report_status("Dispenser empty");
+
                     state = 0;
+                    st_update(state, pill_count);
+                    st_get(NULL, NULL); // print out info
                 }
                 break;
 
@@ -379,8 +387,9 @@ int st_update(uint8_t st_prog, uint8_t pill_count)
 
     //printf("INFO STATE >> 0x%08X at 0x%04X\n", payload, (uint16_t)STATE_ADDR);
 
-    stat=writepg((uint16_t)STATE_ADDR, payload, 2); 
+    stat=writepg((uint16_t)STATE_ADDR, payload, 4); 
 
+    /*
     printf("INFO STATE w[%d] >> %u ~%u %u ~%u at 0x%04X\n", 
         stat,
         payload[0], 
@@ -389,17 +398,49 @@ int st_update(uint8_t st_prog, uint8_t pill_count)
         payload[3], 
         (uint16_t)STATE_ADDR
     );
+    */
 
     if (stat < 1)
         ERROR_CODE=WRITEPG;
     return stat;
 }
 
-int st_get()
+uint8_t st_get(uint8_t *prog_state, uint8_t *pillamt_ptr)
 {
-    uint8_t *data_ptr = seqread( (uint16_t)STATE_ADDR, 4 );
-    //printf("INFO STATE >> 0x%08X at 0x%04X\n", data_ptr, (uint16_t)STATE_ADDR);
+    uint8_t     *data_ptr = seqread( (uint16_t)STATE_ADDR, 4 );
+    uint8_t     st_read=0;
+    uint8_t     pillamt_read=0;
+
+    // validate and save
+    if ( data_ptr[0] == (uint8_t) ~data_ptr[1] )
+        st_read      = data_ptr[0]; // write state if valid
+    if ( data_ptr[2] == (uint8_t) ~data_ptr[3] )
+        pillamt_read = data_ptr[2]; // write pill amt if valid
+
+
+    if ( !prog_state || !pillamt_ptr ) // check if pointers are not null
+    {
+        printf("INFO STATE r >> %u ~%u %u ~%u 0x%04X at 0x%04X\n", 
+            data_ptr[0], 
+            data_ptr[1], 
+            data_ptr[2], 
+            data_ptr[3], 
+            data_ptr,
+            (uint16_t)STATE_ADDR
+        );
+        free(data_ptr); // free bc seqread calloc:s the memory
+
+        ERROR_CODE=4;
+        return 1;
+    } else { 
+        *prog_state = st_read;  // write and call it a day
+        *pillamt_ptr= pillamt_read;
+        free(data_ptr); // free bc seqread calloc:s the memory
+
+        return 0;
+    }
     
+    /* IF debug needed
     printf("INFO STATE r >> %u ~%u %u ~%u 0x%04X at 0x%04X\n", 
         data_ptr[0], 
         data_ptr[1], 
@@ -408,15 +449,5 @@ int st_get()
         data_ptr,
         (uint16_t)STATE_ADDR
     );
-    /*
-    printf("INFO STATE r >> %u ~%u %u ~%u at 0x%04X\n", 
-        readb((uint16_t)STATE_ADDR+0), 
-        readb((uint16_t)STATE_ADDR+1), 
-        readb((uint16_t)STATE_ADDR+2), 
-        readb((uint16_t)STATE_ADDR+3), 
-        (uint16_t)STATE_ADDR);
     */
-
-    free(data_ptr);
-    return 0;
 }

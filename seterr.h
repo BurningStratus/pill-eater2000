@@ -10,7 +10,7 @@
     define error codes and their names here. 
     For example, SUCCESS's index is 0, so SUCCESS's code will be 0.
 */
-enum pillerrlist { SUCCESS, FAIL_GEN, UART_TIMEOUT, WRITEPG };
+enum pillerrlist { SUCCESS, FAIL_GEN, UART_TIMEOUT, WRITEPG, ST_READ };
 
 // global variable to see the error from anywhere.
 static unsigned int ERROR_CODE=0; 
@@ -34,6 +34,9 @@ void printerr(const char *offend_func, int offend_line)
             break;
         case (WRITEPG):
             printf("3: FAILED WRITING DATA TO EEPROM");
+            break;
+        case (ST_READ):
+            printf("4: READ STATE HAS NULL POINTER AS DESTINATION");
             break;
         default:
             printf("UNSPECIFIED ERROR");

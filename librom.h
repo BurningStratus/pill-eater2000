@@ -47,25 +47,30 @@ uint8_t readb (uint16_t rom_addr)
 
 int writepg (uint16_t rom_addr, const uint8_t *payload, int payload_size)
 {
+    payload_size+=2; //account for address (2B)
+
     int         stat=0;
-    uint8_t     packet[2+payload_size];
+    uint8_t     packet[payload_size];
 
     packet[0] = 0xFF; // placeholder for address (hi)
     packet[1] = 0xFF; // placeholder for address (lo)
 
     int ii=0;
-    //strcat(packet, payload); 
-    for (int i=2; i<2+payload_size; i++)
+    for (int i=2; i<payload_size; i++) // from 3rd bit up till the end
     {
-        packet[i]=payload[ii];
-        ii++;
+        packet[i]=payload[ii];  // [FF 0000] << packet
+        ii++;                   // [0000]    << payload
+                                //  ^^^^ copy only after address bytes
     }
 
     packet[0] = ((rom_addr & 0xFF00) >> 8);     // extract hi bits
     packet[1] = (uint8_t)(rom_addr & 0x00FF);   // extract lo bits
 
+    //printf("PGWRITE >> %u %u %u %u \n", packet[2], packet[3], packet[4], packet[5]);
+    //printf("PGWRITE >> 0x%04X SIZE: [%d]\n", packet, payload_size);
+
     stat=i2c_write_blocking( i2c0, I2C_ADDR, packet, payload_size, 0 ); 
-    sleep_ms(5);
+    sleep_ms(10);
     return stat;
 }
 
@@ -80,6 +85,7 @@ uint8_t* seqread (uint16_t rom_addr, int wcnt)
     if ( !dst_str )
     {
         //printf("COULDN'T ALLOCATE MEMORY!");
+        // TODO: ADD ERROR
         return (void *)NULL;
     }
     
