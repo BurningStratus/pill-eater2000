@@ -240,6 +240,7 @@ void dispense_pill() {
         }
     } else {
         printf("No pill detected! Blinking LED...\n");
+        pill_count--;
         for (int i = 0; i < 5; i++) {
             // gpio_put(LED_PIN, true);
             led_set_level (D1, ON);
