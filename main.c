@@ -117,13 +117,11 @@ int main() {
     uint8_t     rom_pillamt;
     uint8_t     rom_state;
 
-    //printf ("");
-    //netw_connect();
+    netw_connect();
+    report_status("TRANSMISSION_0x77FFAAD");
+    printf ("\n\n\n\n============================================\n");
 
     uint8_t SPIN=1;
-    setromrot (SPIN);
-    getromrot ();
-    //printerr(NULL, 0);
     
     st_get ((uint8_t *)&rom_state, (uint8_t *)&rom_pillamt);
     if (rom_pillamt != 0 && rom_pillamt != pill_count) // interrupted
@@ -390,19 +388,22 @@ void netw_connect()
     */
     char    resp [60]="";
     char    cmdseq [][51] = {
-        "+MODE=LWOTAA\n",
-        "+KEY=APPKEY,\”7c00d832d4ab66faee402dbb2c996da3\"\n",
-        "+CLASS=A\n",
-        "+PORT=8\n",
-        "+JOIN\n",
-        "+MSG=\"TRANSMISSION FROM devE773\"\n"
+        "+AT\n"
+        "AT+MODE=LWOTAA\n",
+        "AT+KEY=APPKEY,\"7c00d832d4ab66faee402dbb2c996da3\"\n",
+        "AT+CLASS=A\n",
+        "AT+PORT=8\n",
+        "AT+JOIN\n",
+        "AT+MSG=\"TRANSMISSION FROM devE773\"\n"
     };
-    for (int i=0; i<6; i++)
+
+    for ( int i=0; i<7; i++ )
     {
-        sendATCommand(cmdseq[i], resp);
-        printf("INFO NET: %s\n", resp);
+        sendATCommand(cmdseq[i], resp, 0);
+        printf("INFO NET: %s", resp);
         memset(resp, 0, sizeof(resp));
     }
+    
 }
 
 // Report status via LoRaWAN
@@ -410,7 +411,7 @@ void report_status(const char *status) {
     char response[STRLEN];
     char command[STRLEN];
     snprintf(command, sizeof(command), "AT+MSG=\"%s\"\r\n", status);
-    sendATCommand(command, response);
+    sendATCommand(command, response, 0);
 }
 
 int st_update(uint8_t st_prog, uint8_t pill_count)

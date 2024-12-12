@@ -18,7 +18,7 @@
 
 
 int 
-call_uart_inner (char *dst_ptr)
+call_uart_inner (char *dst_ptr, int timeout_s)
 {
 /*
  * Send arbitrary command to Lora && write response to a destination string. 
@@ -27,7 +27,7 @@ call_uart_inner (char *dst_ptr)
     int         rslen = 0;
     uint64_t    sttime_us = time_us_64();
 
-    while ( (time_us_64()-sttime_us) < (TIMEOUT_S * 1000 * 1000) ) 
+    while ( (time_us_64()-sttime_us) < (timeout_s * 1000 * 1000) ) 
     {
         if ( uart_is_readable(UART_NR) ) 
         {
@@ -46,7 +46,7 @@ call_uart_inner (char *dst_ptr)
 
 
 int
-uart_cmd (const char *cmd, char *dst_str)
+uart_cmd (const char *cmd, char *dst_str, int timeout)
 {
 /* 
  * call UART with this function.
@@ -59,15 +59,15 @@ uart_cmd (const char *cmd, char *dst_str)
     while (attempt < MAX_ATTEMPTS) 
     {
         uart_write_blocking(UART_NR, (const uint8_t *)cmd, strlen(cmd));
-        printf("UART(SEND): %s\n", cmd);
+        printf("UART(SEND): %s", cmd);
 
-        if ( !call_uart_inner (dst_str)) 
+        if ( !call_uart_inner (dst_str, timeout)) 
         { 
-            printf("UART: %s\n", dst_str);
+            //printf("UART: %s", dst_str);
             return 0; // Success
         } else {
             attempt++;
-            printf("UART: NULL(%d)\n", attempt);
+            //printf("UART: NULL(%d)", attempt);
         }
     }
 
@@ -88,9 +88,12 @@ uart_cmd (const char *cmd, char *dst_str)
 // wrappers to not mess with func naming
 
 int 
-sendATCommand(const char *command, char *response)
+sendATCommand(const char *command, char *response, int timeout)
 {
-    return !uart_cmd(command, response);
+    if ( !timeout )
+        return !uart_cmd(command, response, TIMEOUT_S);
+    return !uart_cmd(command, response, timeout);
+    
     // inverted to not break the programs logic and follow conventions
     // 0 == no errors(SUCCESS)
     // 1 == errors occured(UNSPECIFIED ERROR)
