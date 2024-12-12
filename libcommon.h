@@ -12,7 +12,6 @@
 #define STEPPER_PIN4 13
 #define STRLEN 80
 #define MAX_ATTEMPTS 5
-#define TIMEOUT_MS 500 
 #define DEBOUNCE_DELAY 300 // Debounce time in milliseconds
 #define STATE_ADDR 0x0000 
 

@@ -14,6 +14,7 @@
 #define UART_TX_PIN 4
 #define UART_RX_PIN 5
 #define BAUD_RATE 9600
+#define TIMEOUT_S 5
 
 
 int 
@@ -26,7 +27,7 @@ call_uart_inner (char *dst_ptr)
     int         rslen = 0;
     uint64_t    sttime_us = time_us_64();
 
-    while ( (time_us_64()-sttime_us) < (TIMEOUT_MS * 1000) ) 
+    while ( (time_us_64()-sttime_us) < (TIMEOUT_S * 1000 * 1000) ) 
     {
         if ( uart_is_readable(UART_NR) ) 
         {

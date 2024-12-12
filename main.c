@@ -1,5 +1,5 @@
 /*
- * All macros and preprocessor directives were  
+ * All macros and preprocessor directives were
  * moved to libcommon.h
  *
 */
@@ -31,13 +31,14 @@ void initialize_hardware();
 void calibrate_dispenser();
 void rotate_stepper_one_step(int step_dir);
 void dispense_pill();
-bool is_pill_detected();
 static void piezo_handler();
 void report_status(const char *status);
 void netw_connect();
 
 int st_update(uint8_t st_prog, uint8_t pill_count); //update state
 uint8_t st_get(uint8_t *state, uint8_t *pill_amt);  // get state
+uint8_t setromrot (uint8_t st_rot);
+uint8_t getromrot ();
 
 //=EXPERIMENTAL=TECH===========================================================
 #ifndef __PILL_PWM__
@@ -65,24 +66,24 @@ void initpwm ()
 void initrom ()
 {
     printf("INFO: librom.h is not included.\n")
-}    
+}
 #endif
 //=============================================================================
 // * UART functions were moved to libuart.h * //
 
 // TODO: DEBUG ONLY
-void 
+void
 rom_dump ()
 {
-    uint16_t startmem_addr = STATE_ADDR;    
-    uint16_t endmem_addr = STATE_ADDR+64;    
+    uint16_t startmem_addr = STATE_ADDR;
+    uint16_t endmem_addr = STATE_ADDR+64;
 
     printf("\n");
     for (int i=startmem_addr; i<endmem_addr; i++)
         printf("=");
     printf("HEXDUMP: >\n");
 
-    for (int i=startmem_addr; i<endmem_addr; i++)     
+    for (int i=startmem_addr; i<endmem_addr; i++)
     {
         if (i % 64 == 0)
             printf("\n0x%04X\t", i);
@@ -91,14 +92,14 @@ rom_dump ()
 
     // ASCII dump <0x7FC0 is the limit>
     printf("\n ASCII DUMP: > \n");
-    for (int i=startmem_addr; i<endmem_addr; i++)     
+    for (int i=startmem_addr; i<endmem_addr; i++)
     {
         if (i % 64 == 0)
             printf("\n0x%04X\t", i);
         char dst_str = (char)readb (i) ;
-        if ( (char)dst_str >= 33 && (char)dst_str <= 126) 
+        if ( (char)dst_str >= 33 && (char)dst_str <= 126)
             printf("%c", dst_str ); //print out only printable chars
-        else 
+        else
             printf("."); // if special chars, print a dot
     }
 }
@@ -115,6 +116,14 @@ int main() {
     char        response[STRLEN];
     uint8_t     rom_pillamt;
     uint8_t     rom_state;
+
+    //printf ("");
+    //netw_connect();
+
+    uint8_t SPIN=1;
+    setromrot (SPIN);
+    getromrot ();
+    //printerr(NULL, 0);
     
     st_get ((uint8_t *)&rom_state, (uint8_t *)&rom_pillamt);
     if (rom_pillamt != 0 && rom_pillamt != pill_count) // interrupted
@@ -122,10 +131,18 @@ int main() {
         printf("interrupt detected! ST:%u PA:%u\n", rom_state, rom_pillamt);
         while ( gpio_get(OPTICAL_SENSOR_PIN) ) // spin till optofork
             rotate_stepper_one_step(-1);
+		for (int step = 0; step < 20; step++) // align offset from optofork
+        	rotate_stepper_one_step(-1);
 
+
+		pill_count = rom_pillamt;
+		int n_steps = (7 - pill_count)*63;
+		for (int step = 0; step < n_steps; step++) //Move to proper position
+			rotate_stepper_one_step(1);
         st_get(NULL, NULL);
-        pill_count = rom_pillamt;
         motor_position = 0; // Reset motor position after recalibration
+		if ( rom_state > 2 )
+			state = rom_state;
     }
 
     /*
@@ -138,24 +155,25 @@ int main() {
 
     // rom_dump ();
 
-    while (true) 
+    while (true)
     {
-        switch (state) 
+        switch (state)
         {
             case STANDBY:
+				pill_count = 7;
                 st_update(state, pill_count);
 
                 // Waiting for button press and blinking LED
                 printf("Waiting for button press to start calibration...\n");
-                while (gpio_get(BUTTON_PIN)) 
+                while (gpio_get(BUTTON_PIN))
                 {
-                    led_set_level (D1, ON); 
+                    led_set_level (D1, ON);
                     sleep_ms(200);
                     led_set_level (D1, OFF);
                     sleep_ms(200);
                 }
                 while ( !gpio_get(BUTTON_PIN) )
-                    ; 
+                    ;
 
                 led_set_level (D1, OFF);
                 printf("Button pressed. Starting calibration...\n");
@@ -172,47 +190,48 @@ int main() {
                 // Keep LED on until next button press
                 led_set_level (D1, ON);
                 state=CAL_STANDBY;
-                while ( !gpio_get(BUTTON_PIN) )
+                while ( gpio_get(BUTTON_PIN) ) {
+					sleep_ms(100);
+				}
                     ;
-                
                 led_set_level (D1, OFF);
                 while ( !gpio_get(BUTTON_PIN) )
-                    ; 
+                    ;
                 break;
 
             case CAL_STANDBY:
                 st_update(state, pill_count);
 
                 led_set_level (D1, ON);
-                sleep_ms(10000); // Simulate daily interval for testing
+                sleep_ms(5000); // Simulate daily interval for testing
                 state = WORKING;
                 break;
-                
+
             case WORKING:
                 st_update(state, pill_count);
 
                 // Dispense pills
-                if (pill_count > 0) 
+                if (pill_count > 0)
                 {
                     state = CAL_DISPENSE;
                     break;
                 } else {
                     printf("All pills dispensed. Restarting calibration...\n");
-                    report_status("Dispenser empty");
-                    state = CAL_STANDBY;
+                    //report_status("Dispenser empty");
+                    state = STANDBY;
                     break;
                 }
                 state=STANDBY;
                 ERROR_CODE=5; //skipped state
                 break;
-                
+
             case CAL_DISPENSE:
                 st_update(state, pill_count);
                 st_get(NULL, NULL); // print out info
 
                 dispense_pill();
-
-                state = CAL_STANDBY; 
+				pill_count--;
+                state = CAL_STANDBY;
                 break;
 
             default:
@@ -271,7 +290,7 @@ void rotate_stepper_one_step(int step_dir) {
     };
 
     if ( step_dir > 0 ) // positive => clockwise
-    { 
+    {
         for (int i = 0; i < 4; i++) {
             gpio_put(STEPPER_PIN1, step_sequence[i][0]);
             gpio_put(STEPPER_PIN2, step_sequence[i][1]);
@@ -291,7 +310,7 @@ void rotate_stepper_one_step(int step_dir) {
             sleep_ms(5); // Adjust motor speed
         }
         motor_position--;
-    }   
+    }
 
     if (motor_position < 0)
         motor_position = 7;
@@ -304,10 +323,13 @@ void calibrate_dispenser() {
 
     // Rotate the motor at least one full turn
     //while (gpio_get(OPTICAL_SENSOR_PIN) || steps < 200) {
-    while (gpio_get(OPTICAL_SENSOR_PIN) && steps < 200) 
+    while (gpio_get(OPTICAL_SENSOR_PIN) && steps < 504)
     {
         rotate_stepper_one_step(1);
         steps++;
+    }
+    for (int step = 0; step < 20; step++) {
+        rotate_stepper_one_step(1);
     }
     printf("Calibration complete. Motor aligned.\n");
 }
@@ -319,7 +341,7 @@ void dispense_pill() {
     printf("Dispensing pill...\n");
 
     // Rotate the motor to the next compartment
-    for (int step = 0; step < 50; step++) {
+    for (int step = 0; step < 63; step++) {
         rotate_stepper_one_step(1);
     }
     sleep_ms(500);
@@ -327,8 +349,8 @@ void dispense_pill() {
     printf("Waiting for pill detection...\n");
     if (queue_try_remove(&events, &piezo_val)) {
         if (piezo_val == 1) {
-            pill_count--;
-            printf("Pill dispensed successfully. Pills remaining: %d\n", pill_count);
+            //pill_count--;
+            //printf("Pill dispensed successfully. Pills remaining: %d\n", pill_count);
             piezo_val = 0;
         }
         //queue burn
@@ -337,6 +359,7 @@ void dispense_pill() {
         }
     } else {
         printf("No pill detected! Blinking LED...\n");
+		//pill_count--;
         for (int i = 0; i < 5; i++) {
             // gpio_put(LED_PIN, true);
             led_set_level (D1, ON);
@@ -355,39 +378,6 @@ static void piezo_handler(const uint gpio, uint32_t event_mask) {
     queue_try_add(&events, &sensor_impact);
 }
 
-// Check if a pill is detected
-bool is_pill_detected() {
-    uint64_t start_time = time_us_64();
-    int pulse_count = 0;
-    int last_sensor_state = 1; // Assume the sensor starts in the "high" state
-
-    printf("Detecting pill...\n");
-
-    while (time_us_64() - start_time < 1000000) { // Wait for up to 1 second
-        int current_sensor_state = gpio_get(PIEZO_SENSOR_PIN);
-
-        // Only log when the state changes
-        if (current_sensor_state != last_sensor_state) {
-            printf("Piezo sensor state changed to: %d\n", current_sensor_state);
-            last_sensor_state = current_sensor_state;
-        }
-
-        // Count consecutive low signals
-        if (current_sensor_state == 0) { // Active low signal detected
-            pulse_count++;
-            sleep_ms(5); // Short debounce delay
-            if (pulse_count > 2) { // Require multiple low readings for confirmation
-                printf("Pill detected successfully after %d pulses.\n", pulse_count);
-                return true;
-            }
-        } else {
-            pulse_count = 0; // Reset the pulse count if the signal goes high
-        }
-    }
-
-    printf("No pill detected after 1 second.\n");
-    return false;
-}
 void netw_connect()
 {
     /*
@@ -396,7 +386,7 @@ void netw_connect()
     3. +CLASS=A
     4. +PORT=8
     5. +JOIN
-    6. +MSG=”text message” 
+    6. +MSG=”text message”
     */
     char    resp [60]="";
     char    cmdseq [][51] = {
@@ -428,22 +418,22 @@ int st_update(uint8_t st_prog, uint8_t pill_count)
     uint8_t     payload[4]="";
     int         stat;
 
-    payload[0] =  st_prog; 
+    payload[0] =  st_prog;
     payload[1] = ~st_prog;     // validate
-    payload[2] =  pill_count; 
+    payload[2] =  pill_count;
     payload[3] = ~pill_count;  // validate
 
     //printf("INFO STATE >> 0x%08X at 0x%04X\n", payload, (uint16_t)STATE_ADDR);
 
-    stat=writepg((uint16_t)STATE_ADDR, payload, 4); 
+    stat=writepg((uint16_t)STATE_ADDR, payload, 4);
 
     /*
-    printf("INFO STATE w[%d] >> %u ~%u %u ~%u at 0x%04X\n", 
+    printf("INFO STATE w[%d] >> %u ~%u %u ~%u at 0x%04X\n",
         stat,
-        payload[0], 
-        payload[1], 
-        payload[2], 
-        payload[3], 
+        payload[0],
+        payload[1],
+        payload[2],
+        payload[3],
         (uint16_t)STATE_ADDR
     );
     */
@@ -468,11 +458,11 @@ uint8_t st_get(uint8_t *prog_state, uint8_t *pillamt_ptr)
 
     if ( !prog_state || !pillamt_ptr ) // check if pointers are not null
     {
-        printf("INFO STATE r >> %u ~%u %u ~%u 0x%04X at 0x%04X\n", 
-            data_ptr[0], 
-            data_ptr[1], 
-            data_ptr[2], 
-            data_ptr[3], 
+        printf("INFO STATE r >> %u ~%u %u ~%u 0x%04X at 0x%04X\n",
+            data_ptr[0],
+            data_ptr[1],
+            data_ptr[2],
+            data_ptr[3],
             data_ptr,
             (uint16_t)STATE_ADDR
         );
@@ -480,22 +470,54 @@ uint8_t st_get(uint8_t *prog_state, uint8_t *pillamt_ptr)
 
         ERROR_CODE=4;
         return 1;
-    } else { 
+    } else {
         *prog_state = st_read;  // write and call it a day
         *pillamt_ptr= pillamt_read;
         free(data_ptr); // free bc seqread calloc:s the memory
 
         return 0;
     }
-    
+
     /* IF debug needed
-    printf("INFO STATE r >> %u ~%u %u ~%u 0x%04X at 0x%04X\n", 
-        data_ptr[0], 
-        data_ptr[1], 
-        data_ptr[2], 
-        data_ptr[3], 
+    printf("INFO STATE r >> %u ~%u %u ~%u 0x%04X at 0x%04X\n",
+        data_ptr[0],
+        data_ptr[1],
+        data_ptr[2],
+        data_ptr[3],
         data_ptr,
         (uint16_t)STATE_ADDR
     );
     */
+}
+
+uint8_t setromrot (uint8_t st_rot)
+{
+    uint8_t     buf[2];
+    int         stat;
+
+    buf[0] =  (uint8_t)st_rot;
+    buf[1] = ~(uint8_t)st_rot;
+    stat = writepg (STATE_ADDR+5, buf, 2);
+    // printf("SETROMROT: %u %u\n", buf[0], buf[1]);
+    if ( stat < 0 )
+        ERROR_CODE = 6; // TODO: SET ERROR CODES
+    
+    return stat;
+}
+
+uint8_t getromrot ()
+{
+    uint8_t     *st_rot = seqread (STATE_ADDR+5, 2);
+    uint8_t     rot = st_rot[0];
+    uint8_t     irot = st_rot[1];
+
+    free(st_rot);
+    // printf("GETROMROT: %u %u\n", rot, irot);
+
+    if ( (uint8_t)rot == (uint8_t) ~irot )
+        return rot; 
+
+
+    ERROR_CODE = 7;
+    return 0;
 }
