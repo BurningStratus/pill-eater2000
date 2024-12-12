@@ -29,7 +29,7 @@ enum    prog_states {STANDBY, WORKING, CALIBRATE, CAL_STANDBY, CAL_DISPENSE};
 // Function Prototypes
 void initialize_hardware();
 void calibrate_dispenser();
-void rotate_stepper_one_step();
+void rotate_stepper_one_step(int step_dir);
 void dispense_pill();
 bool is_pill_detected();
 static void piezo_handler();
@@ -111,83 +111,112 @@ int main() {
     // Initialize hardware
     initialize_hardware();
 
-    // Recalibrate if motor was interrupted
-    if (motor_position % 50 != 0) {
-        printf("Motor misaligned. Recalibrating...\n");
-        calibrate_dispenser();
+    int         state = 0;
+    char        response[STRLEN];
+    uint8_t     rom_pillamt;
+    uint8_t     rom_state;
+    
+    st_get ((uint8_t *)&rom_state, (uint8_t *)&rom_pillamt);
+    if (rom_pillamt != 0 && rom_pillamt != pill_count) // interrupted
+    {
+        printf("interrupt detected! ST:%u PA:%u\n", rom_state, rom_pillamt);
+        while ( gpio_get(OPTICAL_SENSOR_PIN) ) // spin till optofork
+            rotate_stepper_one_step(-1);
+
+        st_get(NULL, NULL);
+        pill_count = rom_pillamt;
         motor_position = 0; // Reset motor position after recalibration
     }
 
-    int state = 0;
-    char response[STRLEN];
+    /*
+    // Recalibrate if motor was interrupted
+    if (motor_position % 50 != 0) {
+        printf("Motor misaligned. Recalibrating...\n");
 
-    st_update(state, pill_count);
+    }
+    */
+
     // rom_dump ();
 
-    while (true) {
-        switch (state) {
+    while (true) 
+    {
+        switch (state) 
+        {
             case STANDBY:
                 st_update(state, pill_count);
 
                 // Waiting for button press and blinking LED
                 printf("Waiting for button press to start calibration...\n");
-                while (gpio_get(BUTTON_PIN)) {
-
-                    led_set_level (D1, ON);
+                while (gpio_get(BUTTON_PIN)) 
+                {
+                    led_set_level (D1, ON); 
                     sleep_ms(200);
-
                     led_set_level (D1, OFF);
                     sleep_ms(200);
                 }
-                sleep_ms(DEBOUNCE_DELAY);
+                while ( !gpio_get(BUTTON_PIN) )
+                    ; 
 
                 led_set_level (D1, OFF);
-
                 printf("Button pressed. Starting calibration...\n");
+                state = CALIBRATE;
+                break;
 
-                st_update(CALIBRATE, pill_count);
+            case CALIBRATE:
+                st_update(state, pill_count);
+                //st_get(NULL, NULL); // print out info
+
                 calibrate_dispenser();
-                st_get(NULL, NULL); // print out info
-
                 motor_position = 0;
 
                 // Keep LED on until next button press
-                printf("Calibration complete. Waiting to start dispensing...\n");
                 led_set_level (D1, ON);
-
-                while (gpio_get(BUTTON_PIN)) {
-                    sleep_ms(10);
-                }
-
-                sleep_ms(DEBOUNCE_DELAY);
-                led_set_level (D1, ON);
-
-                state = 1;
+                state=CAL_STANDBY;
+                while ( !gpio_get(BUTTON_PIN) )
+                    ;
+                
+                led_set_level (D1, OFF);
+                while ( !gpio_get(BUTTON_PIN) )
+                    ; 
                 break;
 
-            case WORKING:
-
+            case CAL_STANDBY:
                 st_update(state, pill_count);
-                st_get(NULL, NULL); // print out info
+
+                led_set_level (D1, ON);
+                sleep_ms(10000); // Simulate daily interval for testing
+                state = WORKING;
+                break;
+                
+            case WORKING:
+                st_update(state, pill_count);
 
                 // Dispense pills
-                if (pill_count > 0) {
-                    st_update(CAL_DISPENSE, pill_count);
-
-                    dispense_pill();
-                    sleep_ms(10000); // Simulate daily interval for testing
+                if (pill_count > 0) 
+                {
+                    state = CAL_DISPENSE;
+                    break;
                 } else {
                     printf("All pills dispensed. Restarting calibration...\n");
                     report_status("Dispenser empty");
-
-                    state = 0;
-                    st_update(state, pill_count);
-                    st_get(NULL, NULL); // print out info
+                    state = CAL_STANDBY;
+                    break;
                 }
+                state=STANDBY;
+                ERROR_CODE=5; //skipped state
+                break;
+                
+            case CAL_DISPENSE:
+                st_update(state, pill_count);
+                st_get(NULL, NULL); // print out info
+
+                dispense_pill();
+
+                state = CAL_STANDBY; 
                 break;
 
             default:
-                state = 0;
+                state = STANDBY;
                 break;
         }
     }
@@ -233,7 +262,7 @@ void initialize_hardware() {
 }
 
 // Rotate the stepper motor one step
-void rotate_stepper_one_step() {
+void rotate_stepper_one_step(int step_dir) {
     static const bool step_sequence[4][4] = {
         {true, false, false, false},
         {false, true, false, false},
@@ -241,14 +270,31 @@ void rotate_stepper_one_step() {
         {false, false, false, true}
     };
 
-    for (int i = 0; i < 4; i++) {
-        gpio_put(STEPPER_PIN1, step_sequence[i][0]);
-        gpio_put(STEPPER_PIN2, step_sequence[i][1]);
-        gpio_put(STEPPER_PIN3, step_sequence[i][2]);
-        gpio_put(STEPPER_PIN4, step_sequence[i][3]);
-        sleep_ms(5); // Adjust motor speed
+    if ( step_dir > 0 ) // positive => clockwise
+    { 
+        for (int i = 0; i < 4; i++) {
+            gpio_put(STEPPER_PIN1, step_sequence[i][0]);
+            gpio_put(STEPPER_PIN2, step_sequence[i][1]);
+            gpio_put(STEPPER_PIN3, step_sequence[i][2]);
+            gpio_put(STEPPER_PIN4, step_sequence[i][3]);
+            sleep_ms(5); // Adjust motor speed
+        }
+        motor_position++;
     }
-    motor_position++;
+    else if ( step_dir < 0) // 0 => counter clockwise
+    {
+        for (int i = 4; i > 0; i--) {
+            gpio_put(STEPPER_PIN1, step_sequence[i][0]);
+            gpio_put(STEPPER_PIN2, step_sequence[i][1]);
+            gpio_put(STEPPER_PIN3, step_sequence[i][2]);
+            gpio_put(STEPPER_PIN4, step_sequence[i][3]);
+            sleep_ms(5); // Adjust motor speed
+        }
+        motor_position--;
+    }   
+
+    if (motor_position < 0)
+        motor_position = 7;
 }
 
 // Calibrate the dispenser
@@ -257,8 +303,10 @@ void calibrate_dispenser() {
     int steps = 0;
 
     // Rotate the motor at least one full turn
-    while (gpio_get(OPTICAL_SENSOR_PIN) || steps < 200) {
-        rotate_stepper_one_step();
+    //while (gpio_get(OPTICAL_SENSOR_PIN) || steps < 200) {
+    while (gpio_get(OPTICAL_SENSOR_PIN) && steps < 200) 
+    {
+        rotate_stepper_one_step(1);
         steps++;
     }
     printf("Calibration complete. Motor aligned.\n");
@@ -272,7 +320,7 @@ void dispense_pill() {
 
     // Rotate the motor to the next compartment
     for (int step = 0; step < 50; step++) {
-        rotate_stepper_one_step();
+        rotate_stepper_one_step(1);
     }
     sleep_ms(500);
     // Check if the pill is dispensed
