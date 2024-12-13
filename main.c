@@ -22,6 +22,7 @@
 // State Variables
 static uint8_t      pill_count = 7;
 int                 motor_position = 0;
+uint8_t				rot_flag = 0;
 
 static  queue_t events;
 enum    prog_states {STANDBY, WORKING, CALIBRATE, CAL_STANDBY, CAL_DISPENSE};
@@ -118,15 +119,14 @@ int main() {
     uint8_t     rom_state;
 
     netw_connect();
-    report_status("TRANSMISSION_0x77FFAAD");
-    printf ("\n\n\n\n============================================\n");
+    //report_status("TRANSMISSION_0x77FFAAD");
 
-    uint8_t SPIN=1;
     
     st_get ((uint8_t *)&rom_state, (uint8_t *)&rom_pillamt);
     if (rom_pillamt != 0 && rom_pillamt != pill_count) // interrupted
     {
-        printf("interrupt detected! ST:%u PA:%u\n", rom_state, rom_pillamt);
+        rot_flag = getromrot();
+        printf("interrupt detected! ST:%u PA:%u RT:%u\n", rom_state, rom_pillamt, rot_flag);
         while ( gpio_get(OPTICAL_SENSOR_PIN) ) // spin till optofork
             rotate_stepper_one_step(-1);
 		for (int step = 0; step < 20; step++) // align offset from optofork
@@ -142,14 +142,6 @@ int main() {
 		if ( rom_state > 2 )
 			state = rom_state;
     }
-
-    /*
-    // Recalibrate if motor was interrupted
-    if (motor_position % 50 != 0) {
-        printf("Motor misaligned. Recalibrating...\n");
-
-    }
-    */
 
     // rom_dump ();
 
@@ -227,8 +219,11 @@ int main() {
                 st_update(state, pill_count);
                 st_get(NULL, NULL); // print out info
 
-                dispense_pill();
-				pill_count--;
+                if (rot_flag == 0) {
+                    dispense_pill();
+                    pill_count--;
+                }
+                rot_flag = 0;
                 state = CAL_STANDBY;
                 break;
 
@@ -337,7 +332,8 @@ void dispense_pill() {
     int piezo_val = 0;
     gpio_set_irq_enabled(PIEZO_SENSOR_PIN, GPIO_IRQ_EDGE_RISE, true);
     printf("Dispensing pill...\n");
-
+    rot_flag = 1;
+    setromrot(1);
     // Rotate the motor to the next compartment
     for (int step = 0; step < 63; step++) {
         rotate_stepper_one_step(1);
@@ -347,6 +343,8 @@ void dispense_pill() {
     printf("Waiting for pill detection...\n");
     if (queue_try_remove(&events, &piezo_val)) {
         if (piezo_val == 1) {
+            rot_flag = 0;
+            setromrot(0);
             //pill_count--;
             //printf("Pill dispensed successfully. Pills remaining: %d\n", pill_count);
             piezo_val = 0;
