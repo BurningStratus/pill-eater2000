@@ -117,8 +117,33 @@ int main() {
     char        response[STRLEN];
     uint8_t     rom_pillamt;
     uint8_t     rom_state;
+    uint8_t     net_connect=0;
+    uint64_t    sttime_us = time_us_64();
 
-    netw_connect();
+    
+    printf("Press SW_1 to initiate LoRA connection. (5 s)\n");
+    while (true) 
+    {
+        // busy loop to wait for user input
+        printf("\t%0llu s\r", ((time_us_64()-sttime_us) / 1000000)); 
+        if ( (time_us_64()-sttime_us) > (5*1000*1000) ) // 5 s
+        {
+            printf("\nskipping LoRA.\n");
+            break;
+        }
+        sleep_ms(100);
+        if ( !gpio_get( BUTTON_PIN) )
+        {
+            while ( !gpio_get(BUTTON_PIN) )
+                ;
+            printf("\ninitiating LoRA connection.\n");
+            net_connect=1;
+            break;
+        }
+    }
+    if ( net_connect == 1 )
+        netw_connect ();
+
     //report_status("TRANSMISSION_0x77FFAAD");
 
     
