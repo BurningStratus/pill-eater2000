@@ -23,6 +23,7 @@
 static uint8_t      pill_count = 7;
 int                 motor_position = 0;
 uint8_t				rot_flag = 0;
+uint8_t             net_connect=0;
 
 static  queue_t events;
 enum    prog_states {STANDBY, WORKING, CALIBRATE, CAL_STANDBY, CAL_DISPENSE};
@@ -33,7 +34,7 @@ void calibrate_dispenser();
 void rotate_stepper_one_step(int step_dir);
 void dispense_pill();
 static void piezo_handler();
-void report_status(const char *status);
+void report_status(const char *status, int netstat);
 void netw_connect();
 
 int st_update(uint8_t st_prog, uint8_t pill_count); //update state
@@ -108,6 +109,7 @@ rom_dump ()
 // TODO: DEBUG ONLY
 
 // Main Function
+// ReSharper disable once CppDFAEndlessLoop
 int main() {
     queue_init(&events, sizeof(int), 25);
     // Initialize hardware
@@ -117,7 +119,6 @@ int main() {
     char        response[STRLEN];
     uint8_t     rom_pillamt;
     uint8_t     rom_state;
-    uint8_t     net_connect=0;
     uint64_t    sttime_us = time_us_64();
 
     
@@ -152,9 +153,10 @@ int main() {
     {
         rot_flag = getromrot();
         printf("interrupt detected! ST:%u PA:%u RT:%u\n", rom_state, rom_pillamt, rot_flag);
+        report_status("Rotate interrupt detected", net_connect);
         while ( gpio_get(OPTICAL_SENSOR_PIN) ) // spin till optofork
             rotate_stepper_one_step(-1);
-		for (int step = 0; step < 20; step++) // align offset from optofork
+		for (int step = 0; step < 16; step++) // align offset from optofork
         	rotate_stepper_one_step(-1);
 
 
@@ -164,10 +166,10 @@ int main() {
 			rotate_stepper_one_step(1);
         st_get(NULL, NULL);
         motor_position = 0; // Reset motor position after recalibration
-		if ( rom_state > 2 )
-			state = rom_state;
-    }
 
+        state = CAL_STANDBY;
+    }
+    report_status("Boot", net_connect);
     // rom_dump ();
 
     while (true)
@@ -217,8 +219,19 @@ int main() {
             case CAL_STANDBY:
                 st_update(state, pill_count);
 
-                led_set_level (D1, ON);
-                sleep_ms(5000); // Simulate daily interval for testing
+                led_set_level (D1, OFF);
+                printf("Cal_stdby P_count: %u, rot_flag: %u\n", pill_count, rot_flag);
+                if (pill_count == 7 || pill_count == 0) { //if empty or full don't wait
+                    state = WORKING;
+                    break;
+                }
+                if (0 < pill_count < 7) {
+                    if (rot_flag == 0) {
+                        printf("Waiting 5sec\n"); //no delay for the 1st pill or when interrupted while moving
+                        sleep_ms(5000); // Simulate daily interval for testing
+                    }
+                }
+                rot_flag = 0;
                 state = WORKING;
                 break;
 
@@ -232,7 +245,10 @@ int main() {
                     break;
                 } else {
                     printf("All pills dispensed. Restarting calibration...\n");
-                    //report_status("Dispenser empty");
+                    report_status("Dispenser empty", net_connect);
+                    for (int step = 0; step < 126; step++) { //avoid optofork trouble
+                        rotate_stepper_one_step(1);
+                    }
                     state = STANDBY;
                     break;
                 }
@@ -244,10 +260,12 @@ int main() {
                 st_update(state, pill_count);
                 st_get(NULL, NULL); // print out info
 
-                if (rot_flag == 0) {
-                    dispense_pill();
-                    pill_count--;
-                }
+
+                dispense_pill();
+                pill_count--;
+                char status_report[48] = "";
+                sprintf(status_report, "Pills left: %u", pill_count);
+                report_status(status_report, net_connect);
                 rot_flag = 0;
                 state = CAL_STANDBY;
                 break;
@@ -340,7 +358,6 @@ void calibrate_dispenser() {
     int steps = 0;
 
     // Rotate the motor at least one full turn
-    //while (gpio_get(OPTICAL_SENSOR_PIN) || steps < 200) {
     while (gpio_get(OPTICAL_SENSOR_PIN) && steps < 504)
     {
         rotate_stepper_one_step(1);
@@ -365,7 +382,7 @@ void dispense_pill() {
     }
     sleep_ms(500);
     // Check if the pill is dispensed
-    printf("Waiting for pill detection...\n");
+    //printf("Waiting for pill detection...\n");
     if (queue_try_remove(&events, &piezo_val)) {
         if (piezo_val == 1) {
             rot_flag = 0;
@@ -390,7 +407,7 @@ void dispense_pill() {
             sleep_ms(200);
         }
         gpio_set_irq_enabled(PIEZO_SENSOR_PIN, GPIO_IRQ_EDGE_RISE, false);
-        report_status("Pill not detected");
+        report_status("Pill not detected", net_connect);
     }
 }
 
@@ -409,16 +426,18 @@ void netw_connect()
     5. +JOIN
     6. +MSG=”text message”
     */
-    char    resp [60]="";
+    char    resp [STRLEN]="";
     char    cmdseq [][51] = {
-        "+AT\n"
+        "+AT\n",
         "AT+MODE=LWOTAA\n",
-        "AT+KEY=APPKEY,\"7c00d832d4ab66faee402dbb2c996da3\"\n",
+        "AT+KEY=APPKEY,\"2226200107180fdda11dbafc92fff6a6\"\n",
         "AT+CLASS=A\n",
         "AT+PORT=8\n",
         "AT+JOIN\n",
         "AT+MSG=\"TRANSMISSION FROM devE773\"\n"
     };
+    //"AT+KEY=APPKEY,\"7c00d832d4ab66faee402dbb2c996da3\"\n", pavel
+    //"AT+KEY=APPKEY,\"2226200107180fdda11dbafc92fff6a6\"\n" joelsimo
 
     for ( int i=0; i<7; i++ )
     {
@@ -430,11 +449,13 @@ void netw_connect()
 }
 
 // Report status via LoRaWAN
-void report_status(const char *status) {
-    char response[STRLEN];
-    char command[STRLEN];
-    snprintf(command, sizeof(command), "AT+MSG=\"%s\"\r\n", status);
-    sendATCommand(command, response, 0);
+void report_status(const char *status, int netstat) {
+    if (netstat) { //send msg if flag true
+        char response[STRLEN];
+        char command[STRLEN];
+        snprintf(command, sizeof(command), "AT+MSG=\"%s\"\r\n", status);
+        sendATCommand(command, response, 0);
+    }
 }
 
 int st_update(uint8_t st_prog, uint8_t pill_count)
